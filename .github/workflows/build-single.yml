@@ -1,0 +1,316 @@
+# Usage guide: see .github/workflows/README.md
+name: Build single Dynmap version
+
+on:
+  workflow_dispatch:
+    inputs:
+      modloader:
+        description: See .github/workflows/build-single.md for details. Select platform to build
+        required: true
+        type: choice
+        options: [spigot, fabric, forge]
+      mc_version:
+        description: Minecraft version (e.g., 1.21.5) — required for fabric/forge
+        required: false
+        type: string
+      create_prerelease:
+        description: Create GitHub prerelease and upload assets
+        required: true
+        type: boolean
+        default: false
+      release_tag:
+        description: Optional tag name for the prerelease
+        required: false
+        type: string
+      gradle_args:
+        description: Extra Gradle args (e.g., -x test)
+        required: false
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      # Optional: set repository secrets if GitHub Packages auth is required for dependencies (e.g., s3-lite)
+      # Use repository owner as GitHub Packages username; token from TOKEN_GITHUB
+      GPR_USER: ${{ github.repository_owner }}
+      GPR_KEY: ${{ secrets.TOKEN_GITHUB }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Rebuild settings.gradle for selected target (Fabric/Forge)
+        if: ${{ (inputs.modloader == 'fabric' || inputs.modloader == 'forge') && inputs.mc_version != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver='${{ inputs.mc_version }}'
+          cp settings.gradle settings.gradle.bak
+
+          # Header without include/project lines
+          grep -Ev "^[[:space:]]*include[[:space:]]" settings.gradle.bak | \
+          grep -Ev "^[[:space:]]*project\(':" > settings.header || true
+          [[ -f settings.header ]] || : > settings.header
+
+          declare -a mods=("DynmapCoreAPI" "DynmapCore" "dynmap-api")
+
+          if [[ '${{ inputs.modloader }}' == 'fabric' ]]; then
+            mods+=("fabric-${ver}")
+            major_minor="$(echo "$ver" | cut -d. -f1-2)"
+            major_minor_compact="${major_minor//./}"
+            patch="$(echo "$ver" | awk -F. '{print $3}')"
+            helper_base="bukkit-helper-${major_minor_compact}"
+            helper_patch="${helper_base}-${patch}"
+            [[ -d bukkit-helper ]] && mods+=("bukkit-helper")
+            [[ -d "${helper_base}" ]] && mods+=("${helper_base}")
+            [[ -d "${helper_patch}" ]] && mods+=("${helper_patch}")
+          else
+            mods+=("forge-${ver}")
+          fi
+
+          # Build new settings.gradle
+          mv settings.header settings.gradle
+          for m in "${mods[@]}"; do
+            echo "include ':${m}'" >> settings.gradle
+          done
+
+          # Append project mappings only for selected mods (if present in original)
+          for m in "${mods[@]}"; do
+            grep -E "^[[:space:]]*project\(':${m}'\)" settings.gradle.bak || true
+          done >> settings.gradle
+
+          echo 'Active includes:'
+          grep -n "^include '" settings.gradle || true
+          echo 'Active project mappings:'
+          grep -n "^project('" settings.gradle || true
+
+      - name: Rebuild settings.gradle for selected target (Spigot)
+        if: ${{ inputs.modloader == 'spigot' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp settings.gradle settings.gradle.bak
+
+          # Header without include/project lines
+          grep -Ev "^[[:space:]]*include[[:space:]]" settings.gradle.bak | \
+          grep -Ev "^[[:space:]]*project\(':" > settings.header || true
+          [[ -f settings.header ]] || : > settings.header
+
+          declare -a mods=("DynmapCoreAPI" "DynmapCore" "dynmap-api" "spigot")
+          # Include bukkit-helper base and variants present in repo (only those)
+          for d in bukkit-helper bukkit-helper-*; do
+            [[ -d "$d" ]] && mods+=("$d")
+          done
+
+          mv settings.header settings.gradle
+          for m in "${mods[@]}"; do
+            echo "include ':${m}'" >> settings.gradle
+          done
+
+          for m in "${mods[@]}"; do
+            grep -E "^[[:space:]]*project\(':${m}'\)" settings.gradle.bak || true
+          done >> settings.gradle
+
+          echo 'Active includes:'
+          grep -n "^include '" settings.gradle || true
+          echo 'Active project mappings:'
+          grep -n "^project('" settings.gradle || true
+
+      - name: Sanitize GitHub Packages credentials for CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Replace hardcoded credentials with env/property-based ones (no secrets committed)
+          sed -i 's|username = \".*\"|username = project.findProperty("gpr.user") ?: System.getenv("GPR_USER")|' build.gradle
+          sed -i 's|password = \".*\"|password = project.findProperty("gpr.key") ?: System.getenv("GPR_KEY")|' build.gradle
+
+      - name: Configure Gradle properties for credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.gradle
+          # Write credentials to user-level gradle.properties (not printed)
+          {
+            echo "gpr.user=${GPR_USER}"
+            echo "gpr.key=${GPR_KEY}"
+          } > ~/.gradle/gradle.properties
+
+      - name: Sanity check GitHub Packages access
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Use netrc to avoid echoing credentials
+          {
+            echo "machine maven.pkg.github.com"
+            echo "  login ${GPR_USER}"
+            echo "  password ${GPR_KEY}"
+          } > ~/.netrc
+          chmod 600 ~/.netrc
+          url_base="https://maven.pkg.github.com/linktosriram/s3-lite/io/github/linktosriram/s3lite/core/0.0.2-SNAPSHOT/maven-metadata.xml"
+          code=$(curl -sS -n -o /dev/null -w "%{http_code}" "$url_base" || true)
+          if [ "$code" != "200" ] && [ "$code" != "302" ]; then
+            echo "GitHub Packages auth check returned HTTP $code (expected 200/302)."; exit 1;
+          fi
+
+      - name: Select module and task
+        id: select
+        shell: bash
+        run: |
+          set -euo pipefail
+          ml='${{ inputs.modloader }}'
+          ver='${{ inputs.mc_version }}'
+          case "$ml" in
+            spigot)
+              project=':spigot'
+              task=':spigot:shadowJar'
+              jar_glob='target/Dynmap-*-spigot.jar'
+              ;;
+            fabric)
+              if [[ -z "$ver" ]]; then echo 'mc_version is required for fabric'; exit 1; fi
+              project=":fabric-${ver}"
+              task=":fabric-${ver}:build"
+              jar_glob="target/Dynmap-*-fabric-${ver}.jar"
+              ;;
+            forge)
+              if [[ -z "$ver" ]]; then echo 'mc_version is required for forge'; exit 1; fi
+              project=":forge-${ver}"
+              task=":forge-${ver}:build"
+              jar_glob="target/Dynmap-*-forge-${ver}.jar"
+              ;;
+            *) echo "Unknown modloader $ml"; exit 1;;
+          esac
+          echo "project=$project" >> "$GITHUB_OUTPUT"
+          echo "task=$task" >> "$GITHUB_OUTPUT"
+          echo "jar_glob=$jar_glob" >> "$GITHUB_OUTPUT"
+          dir="${project#:}"
+          [[ -d "$dir" ]] || { echo "Module directory $dir not found"; exit 1; }
+
+      - name: Show effective configuration before build
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Selected modloader: ${{ inputs.modloader }}"
+          echo "Selected version: ${{ inputs.mc_version }}"
+          echo "Selected project: ${{ steps.select.outputs.project }}"
+          echo "Selected task: ${{ steps.select.outputs.task }}"
+          echo "Jar glob: ${{ steps.select.outputs.jar_glob }}"
+          echo "\nActive includes in settings.gradle:"
+          grep -n "^include '" settings.gradle || true
+          echo "\nActive project mappings in settings.gradle:"
+          grep -n "^project('" settings.gradle || true
+          echo "\nGradle projects tree (after pruning):"
+
+      - name: Build
+        shell: bash
+        run: |
+          chmod +x ./gradlew
+          set -euo pipefail
+          ./gradlew ${{ steps.select.outputs.task }} ${{ inputs.gradle_args }}
+
+      - name: Locate artifact
+        id: locate
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=( ${{ steps.select.outputs.jar_glob }} )
+          if (( ${#files[@]} == 0 )); then
+            echo 'No jar matched expected pattern'; ls -l target || true; exit 1
+          fi
+          jar="$(ls -t "${files[@]}" | head -n1)"
+          echo "jar=$jar" >> "$GITHUB_OUTPUT"
+          echo "Found artifact: $jar"
+
+      - name: Compute SHA-256
+        id: hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum "${{ steps.locate.outputs.jar }}" | tee "${{ steps.locate.outputs.jar }}.sha256"
+          echo "sha=$(sha256sum "${{ steps.locate.outputs.jar }}" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dynmap-${{ inputs.modloader }}${{ inputs.mc_version != '' && format('-{0}', inputs.mc_version) || '' }}
+          path: |
+            ${{ steps.locate.outputs.jar }}
+            ${{ steps.locate.outputs.jar }}.sha256
+          if-no-files-found: error
+
+      - name: Compute release metadata
+        id: rel
+        if: ${{ inputs.create_prerelease == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mod='${{ inputs.modloader }}'
+          ver='${{ inputs.mc_version }}'
+          if [[ -n "$ver" ]]; then slug="$mod-$ver"; else slug="$mod"; fi
+          tag='${{ inputs.release_tag }}'
+          if [[ -z "$tag" ]]; then tag="dynmap-ci-$slug-r${{ github.run_number }}"; fi
+          # Release title: {ModLoader}-{version} Auto Build (fallback to just {ModLoader} if no version)
+          if [[ -n "$ver" ]]; then title="$mod-$ver Auto Build"; else title="$mod Auto Build"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=$title" >> "$GITHUB_OUTPUT"
+
+      - name: Create prerelease via GitHub API
+        id: create_release
+        if: ${{ inputs.create_prerelease == true }}
+        env:
+          GH_API_TOKEN: ${{ secrets.TOKEN_GITHUB }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+          SHA256: ${{ steps.hash.outputs.sha }}
+          JAR: ${{ steps.locate.outputs.jar }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ steps.rel.outputs.tag }}'
+          name='${{ steps.rel.outputs.name }}'
+          short_commit="${COMMIT:0:7}"
+          artifact="$(basename "$JAR")"
+          body=$(cat <<EOF
+            Build using https://github.com/${GITHUB_REPOSITORY}/commit/${short_commit} from branch \`${BRANCH}\`.
+
+            sha256: \`${SHA256}\`
+            artifact: \`${artifact}\`
+          EOF
+          )
+          json=$(jq -n --arg tag "$tag" --arg name "$name" --arg body "$body" '{tag_name:$tag,name:$name,body:$body,draft:false,prerelease:true,generate_release_notes:false}')
+          response=$(curl -sS -X POST \
+            -H "Authorization: Bearer ${GH_API_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/releases" \
+            -d "$json")
+          echo "$response" | jq -e '.id and .upload_url' >/dev/null
+          echo "upload_url=$(echo "$response" | jq -r '.upload_url' | sed 's/{?name,label}//')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload assets to prerelease via GitHub API
+        if: ${{ inputs.create_prerelease == true }}
+        env:
+          GH_API_TOKEN: ${{ secrets.TOKEN_GITHUB }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          upload_url="${{ steps.create_release.outputs.upload_url }}"
+          for f in "${{ steps.locate.outputs.jar }}" "${{ steps.locate.outputs.jar }}.sha256"; do
+            name="$(basename "$f")"
+            curl -sS -X POST \
+              -H "Authorization: Bearer ${GH_API_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"$f" \
+              "${upload_url}?name=${name}" | jq -e '.id or .state or .browser_download_url' >/dev/null
+          done
