@@ -8,13 +8,14 @@ eclipse {
     }
 }
 
-sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8' // Need this here so eclipse task generates correctly.
+// sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8' // Need this here so eclipse task generates correctly.
 
 dependencies {
     implementation project(':DynmapCoreAPI')
-    implementation 'javax.servlet:javax.servlet-api:3.1'
-    implementation'org.eclipse.jetty:jetty-server:9.4.26.v20200117'
+    implementation 'javax.servlet:javax.servlet-api:4.0.1'
+    implementation 'org.eclipse.jetty:jetty-server:9.4.26.v20200117'
     implementation 'org.eclipse.jetty:jetty-servlet:9.4.26.v20200117'
+    implementation 'org.eclipse.jetty:jetty-http:9.4.26.v20200117'
     implementation 'com.googlecode.json-simple:json-simple:1.1.1'
     implementation 'org.yaml:snakeyaml:1.23'	// DON'T UPDATE - NEWER ONE TRIPS ON WINDOWS ENCODED FILES
     implementation 'com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer:20180219.1'
@@ -56,8 +57,12 @@ shadowJar {
         include(dependency('com.googlecode.json-simple:json-simple:'))
         include(dependency('org.yaml:snakeyaml:'))
         include(dependency('com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer:'))
-        include(dependency('javax.servlet::'))
-        include(dependency('org.eclipse.jetty::'))
+        include(dependency('javax.servlet:javax.servlet-api:'))
+        include(dependency('org.eclipse.jetty:jetty-server:'))
+        include(dependency('org.eclipse.jetty:jetty-servlet:'))
+        include(dependency('org.eclipse.jetty:jetty-util'))
+        include(dependency('org.eclipse.jetty:jetty-http'))
+        include(dependency('org.eclipse.jetty:jetty-io:'))
         include(dependency('org.eclipse.jetty.orbit:javax.servlet:'))
         include(dependency('org.postgresql:postgresql:'))
         include(dependency('io.github.linktosriram.s3lite:core:'))
@@ -77,10 +82,25 @@ shadowJar {
 	relocate('org.owasp.html', 'org.dynmap.org.owasp.html')
 	relocate('javax.servlet', 'org.dynmap.javax.servlet' )
 	relocate('org.postgresql', 'org.dynmap.org.postgresql')
-	relocate('io.github.linktosriram.s3lite', 'org.dynmap.s3lite')    
+	relocate('io.github.linktosriram.s3lite', 'org.dynmap.s3lite')
+    
 	
     destinationDirectory = file '../target'
     archiveClassifier = ''
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
+	// if it is present.
+	// If you remove this line, sources will not be generated.
+	// withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
 }
 
 artifacts {

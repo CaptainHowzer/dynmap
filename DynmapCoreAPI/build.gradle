@@ -1,4 +1,6 @@
 
+
+
 apply plugin: 'eclipse'
 
 eclipse {
@@ -6,9 +8,18 @@ eclipse {
         name = "Dynmap(DynmapCoreAPI)"
     }
 }
-sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8' // Need this here so eclipse task generates correctly.
 
 description = "DynmapCoreAPI"
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
 
 jar {
     destinationDirectory = file '../target'
@@ -17,7 +28,7 @@ jar {
 artifacts {
     archives jar
 }
-
+// configure the maven publication
 publishing {
     publications {
         mavenJava(MavenPublication) {
