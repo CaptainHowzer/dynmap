@@ -1,11 +1,14 @@
 package org.dynmap.fabric_26_1.event;
 
+import org.dynmap.fabric_26_1.event.BlockEvents.BlockCallback;
+import org.dynmap.fabric_26_1.event.BlockEvents.SignChangeCallback;
+
 import net.fabricmc.fabric.api.event.Event;
 import net.fabricmc.fabric.api.event.EventFactory;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.World;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Level;
 
 public class BlockEvents {
     private BlockEvents() {
@@ -29,11 +32,11 @@ public class BlockEvents {
 
     @FunctionalInterface
     public interface BlockCallback {
-        void onBlockEvent(World world, BlockPos pos);
+        void onBlockEvent(Level world, BlockPos pos);
     }
 
     @FunctionalInterface
     public interface SignChangeCallback {
-        void onSignChange(ServerWorld world, BlockPos pos, String[] lines, ServerPlayerEntity player, boolean front);
+        void onSignChange(ServerLevel world, BlockPos pos, String[] lines, ServerPlayer player, boolean front);
     }
 }

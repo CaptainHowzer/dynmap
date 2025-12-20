@@ -1,6 +1,6 @@
 package org.dynmap.fabric_26_1.permissions;
 
-import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.world.entity.player.Player;
 import org.dynmap.Log;
 import org.dynmap.fabric_26_1.DynmapPlugin;
 
@@ -32,7 +32,7 @@ public class OpPermissions implements PermissionProvider {
     }
 
     @Override
-    public boolean has(PlayerEntity psender, String permission) {
+    public boolean has(Player psender, String permission) {
         if (psender != null) {
             if (usrCommands.contains(permission)) {
                 return true;
@@ -43,7 +43,7 @@ public class OpPermissions implements PermissionProvider {
     }
 
     @Override
-    public boolean hasPermissionNode(PlayerEntity psender, String permission) {
+    public boolean hasPermissionNode(Player psender, String permission) {
         if (psender != null) {
             return DynmapPlugin.plugin.isOp(psender.getName().getString());
         }

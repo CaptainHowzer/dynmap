@@ -6,30 +6,31 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents;
+import net.minecraft.world.level.block.state.properties.Property;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.FluidBlock;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.Item;
-import net.minecraft.registry.tag.BlockTags;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.Registry;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.LiquidBlock;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.Registry;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.collection.IdList;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.EmptyBlockView;
-import net.minecraft.world.World;
-import net.minecraft.world.WorldAccess;
-import net.minecraft.world.biome.Biome;
-import net.minecraft.world.chunk.Chunk;
-import net.minecraft.world.chunk.ChunkSection;
-import net.minecraft.client.color.world.BiomeColors;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.resources.Identifier;
+import net.minecraft.core.IdMapper;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.EmptyBlockGetter;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LevelAccessor;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.client.renderer.BiomeColors;
 import org.dynmap.*;
 import org.dynmap.common.BiomeMap;
 import org.dynmap.common.DynmapCommandSender;
@@ -70,7 +71,7 @@ public class DynmapPlugin {
     ChatHandler chathandler;
     private HashMap<String, Integer> sortWeights = new HashMap<String, Integer>();
     private HashMap<String, FabricWorld> worlds = new HashMap<String, FabricWorld>();
-    private WorldAccess last_world;
+    private LevelAccessor last_world;
     private FabricWorld last_fworld;
     private Map<String, FabricPlayer> players = new HashMap<String, FabricPlayer>();
     private FabricServer fserver;
@@ -109,7 +110,7 @@ public class DynmapPlugin {
     }
 
     public static class BlockUpdateRec {
-        WorldAccess w;
+        LevelAccessor w;
         String wid;
         int x, y, z;
     }
@@ -125,7 +126,7 @@ public class DynmapPlugin {
         stateByID = new DynmapBlockState[512 * 32];    // Simple map - scale as needed
         Arrays.fill(stateByID, DynmapBlockState.AIR); // Default to air
 
-        IdList<BlockState> bsids = Block.STATE_IDS;
+        IdMapper<BlockState> bsids = Block.BLOCK_STATE_REGISTRY;
 
         DynmapBlockState basebs = null;
         Block baseb = null;
@@ -135,7 +136,7 @@ public class DynmapPlugin {
     	DynmapBlockState.Builder bld = new DynmapBlockState.Builder();
         while (iter.hasNext()) {
             BlockState bs = iter.next();
-            int idx = bsids.getRawId(bs);
+            int idx = bsids.getId(bs);
             if (idx >= stateByID.length) {
                 int plen = stateByID.length;
     			stateByID = Arrays.copyOf(stateByID, idx*11/10); // grow array by 10%    			
@@ -149,7 +150,8 @@ public class DynmapPlugin {
                 baseb = b;
             }
 
-            Identifier ui = Registries.BLOCK.getId(b);
+            int uid = BuiltInRegistries.BLOCK.getId(b);
+            Identifier ui = BuiltInRegistries.BLOCK.getKey(b);
             if (ui == null) {
                 continue;
             }
@@ -157,22 +159,24 @@ public class DynmapPlugin {
             // Only do defined names, and not "air"
             if (!bn.equals(DynmapBlockState.AIR_BLOCK)) {
                 String statename = "";
-                for (net.minecraft.state.property.Property<?> p : bs.getProperties()) {
-                    if (statename.length() > 0) {
+                for (Property<?> p : bs.getProperties()) {
+                    if (!statename.isEmpty()) {
                         statename += ",";
                     }
-                    statename += p.getName() + "=" + bs.get(p).toString();
+
+                    Comparable<?> value = bs.getValue((Property) p);
+                    statename += p.getName() + "=" + value;
                 }
-                int lightAtten = bs.isOpaqueFullCube() ? 15 : (bs.isTransparent() ? 0 : 1);
+                int lightAtten = bs.isSolidRender() ? 15 : (bs.propagatesSkylightDown() ? 0 : 1);
                 //Log.info("statename=" + bn + "[" + statename + "], lightAtten=" + lightAtten);
                 // Fill in base attributes
                 bld.setBaseState(basebs).setStateIndex(idx - baseidx).setBlockName(bn).setStateName(statename).setLegacyBlockID(idx).setAttenuatesLight(lightAtten);
-                if (bs.getSoundGroup() != null) { bld.setMaterial(bs.getSoundGroup().toString()); }
+                if (bs.getSoundType() != null) { bld.setMaterial(bs.getSoundType().toString()); }
 				if (bs.isSolid()) { bld.setSolid(); }
 				if (bs.isAir()) { bld.setAir(); }
-				if (bs.isIn(BlockTags.LOGS)) { bld.setLog(); }
-				if (bs.isIn(BlockTags.LEAVES)) { bld.setLeaves(); }
-				if ((!bs.getFluidState().isEmpty()) && !(bs.getBlock() instanceof FluidBlock)) {
+				if (bs.is(BlockTags.LOGS)) { bld.setLog(); }
+				if (bs.is(BlockTags.LEAVES)) { bld.setLeaves(); }
+				if ((!bs.getFluidState().isEmpty()) && !(bs.getBlock() instanceof LiquidBlock)) {
 					bld.setWaterlogged();
 				}
                 DynmapBlockState dbs = bld.build(); // Build state
@@ -187,10 +191,10 @@ public class DynmapPlugin {
     }
 
     public static final Item getItemByID(int id) {
-        return Item.byRawId(id);
+        return Item.byId(id);
     }
 
-    FabricPlayer getOrAddPlayer(ServerPlayerEntity player) {
+    FabricPlayer getOrAddPlayer(ServerPlayer player) {
         String name = player.getName().getString();
         FabricPlayer fp = players.get(name);
         if (fp != null) {
@@ -204,7 +208,7 @@ public class DynmapPlugin {
 
     static class ChatMessage {
         String message;
-        ServerPlayerEntity sender;
+        ServerPlayer sender;
     }
 
     ConcurrentLinkedQueue<ChatMessage> msgqueue = new ConcurrentLinkedQueue<ChatMessage>();
@@ -216,7 +220,7 @@ public class DynmapPlugin {
             this.plugin = plugin;
         }
 
-        public void handleChat(ServerPlayerEntity player, String message) {
+        public void handleChat(ServerPlayer player, String message) {
             if (!message.startsWith("/")) {
                 ChatMessage cm = new ChatMessage();
                 cm.message = message;
@@ -250,7 +254,7 @@ public class DynmapPlugin {
     }
 
     public boolean isOp(String player) {
-        String[] ops = server.getPlayerManager().getOpList().getNames();
+        String[] ops = server.getPlayerList().getOps().getUserList();
 
         for (String op : ops) {
             if (op.equalsIgnoreCase(player)) {
@@ -259,10 +263,10 @@ public class DynmapPlugin {
         }
 
         // TODO: Consider whether cheats are enabled for integrated server
-        return server.isSingleplayer() && server.isHost(server.getPlayerManager().getPlayer(player).getPlayerConfigEntry());
+        return server.isSingleplayer() && server.isSingleplayerOwner(server.getPlayerList().getPlayer(player).nameAndId());
     }
 
-    boolean hasPerm(PlayerEntity psender, String permission) {
+    boolean hasPerm(Player psender, String permission) {
         PermissionsHandler ph = PermissionsHandler.getHandler();
         if ((ph != null) && (psender != null) && ph.hasPermission(psender.getName().getString(), permission)) {
             return true;
@@ -270,7 +274,7 @@ public class DynmapPlugin {
         return permissions.has(psender, permission);
     }
 
-    boolean hasPermNode(PlayerEntity psender, String permission) {
+    boolean hasPermNode(Player psender, String permission) {
         PermissionsHandler ph = PermissionsHandler.getHandler();
         if ((ph != null) && (psender != null) && ph.hasPermissionNode(psender.getName().getString(), permission)) {
             return true;
@@ -332,9 +336,10 @@ public class DynmapPlugin {
         for (int i = 0; i < list.length; i++) {
             Biome bb = list[i];
             if (bb != null) {
-                String id = biomeRegistry.getId(bb).getPath();
-                String rl = biomeRegistry.getId(bb).toString();
-                float tmp = bb.getTemperature(), hum = bb.weather.downfall();
+                String id = biomeRegistry.getKey(bb).getPath();
+                String rl = biomeRegistry.getKey(bb).toString();
+                float tmp = bb.getBaseTemperature(), hum = 0.0f; // set humidity later?
+
                 int watermult = bb.getWaterColor();
                 Log.verboseinfo("biome[" + i + "]: hum=" + hum + ", tmp=" + tmp + ", mult=" + Integer.toHexString(watermult));
 
@@ -372,7 +377,7 @@ public class DynmapPlugin {
         for (int i = 0; i < list.length; i++) {
             Biome bb = list[i];
             if (bb != null) {
-                lst[i] = biomeRegistry.getId(bb).getPath();
+                lst[i] = biomeRegistry.getKey(bb).getPath();
             }
         }
         return lst;
@@ -380,7 +385,7 @@ public class DynmapPlugin {
 
     public void onEnable() {
         /* Get MC version */
-        String mcver = server.getVersion();
+        String mcver = server.getServerVersion();
 
         /* Load extra biomes */
         loadExtraBiomes(mcver);
@@ -438,7 +443,7 @@ public class DynmapPlugin {
     private DmarkerCommand dmarkerCmd;
     private DynmapExpCommand dynmapexpCmd;
 
-    public void registerCommands(CommandDispatcher<ServerCommandSource> cd) {
+    public void registerCommands(CommandDispatcher<CommandSourceStack> cd) {
         dynmapCmd = new DynmapCommand(this);
         dmapCmd = new DmapCommand(this);
         dmarkerCmd = new DmarkerCommand(this);
@@ -523,13 +528,13 @@ public class DynmapPlugin {
     }
 
     // TODO: Clean a bit
-    public void handleCommand(ServerCommandSource commandSource, String cmd, String[] args) throws CommandSyntaxException {
+    public void handleCommand(CommandSourceStack commandSource, String cmd, String[] args) throws CommandSyntaxException {
         DynmapCommandSender dsender;
-        ServerPlayerEntity psender = null;
+        ServerPlayer psender = null;
 
         // getPlayer throws a CommandSyntaxException, so getEntity and instanceof for safety
-        if (commandSource.getEntity() instanceof ServerPlayerEntity) {
-            psender = commandSource.getPlayerOrThrow();
+        if (commandSource.getEntity() instanceof ServerPlayer) {
+            psender = commandSource.getPlayerOrException();
         }
 
         if (psender != null) {
@@ -543,7 +548,7 @@ public class DynmapPlugin {
     }
 
     public class PlayerTracker {
-        public void onPlayerLogin(ServerPlayerEntity player) {
+        public void onPlayerLogin(ServerPlayer player) {
             if (!core_enabled) return;
             final DynmapPlayer dp = getOrAddPlayer(player);
             /* This event can be called from off server thread, so push processing there */
@@ -554,7 +559,7 @@ public class DynmapPlugin {
             }, 2);
         }
 
-        public void onPlayerLogout(ServerPlayerEntity player) {
+        public void onPlayerLogout(ServerPlayer player) {
             if (!core_enabled) return;
             final DynmapPlayer dp = getOrAddPlayer(player);
             final String name = player.getName().getString();
@@ -567,12 +572,12 @@ public class DynmapPlugin {
             }, 0);
         }
 
-        public void onPlayerChangedDimension(ServerPlayerEntity player) {
+        public void onPlayerChangedDimension(ServerPlayer player) {
             if (!core_enabled) return;
             getOrAddPlayer(player);    // Freshen player object reference
         }
 
-        public void onPlayerRespawn(ServerPlayerEntity player) {
+        public void onPlayerRespawn(ServerPlayer player) {
             if (!core_enabled) return;
             getOrAddPlayer(player);    // Freshen player object reference
         }
@@ -591,7 +596,7 @@ public class DynmapPlugin {
     }
 
     public class WorldTracker {
-        public void handleWorldLoad(MinecraftServer server, ServerWorld world) {
+        public void handleWorldLoad(MinecraftServer server, ServerLevel world) {
             if (!core_enabled) return;
 
             final FabricWorld fw = getWorld(world);
@@ -604,7 +609,7 @@ public class DynmapPlugin {
             }, 0);
         }
 
-        public void handleWorldUnload(MinecraftServer server, ServerWorld world) {
+        public void handleWorldUnload(MinecraftServer server, ServerLevel world) {
             if (!core_enabled) return;
 
             final FabricWorld fw = getWorld(world);
@@ -624,7 +629,7 @@ public class DynmapPlugin {
             }
         }
 
-        public void handleChunkGenerate(ServerWorld world, Chunk chunk) {
+        public void handleChunkGenerate(ServerLevel world, ChunkAccess chunk) {
             if (!onchunkgenerate) return;
 
             FabricWorld fw = getWorld(world, false);
@@ -632,27 +637,27 @@ public class DynmapPlugin {
 
 			int ymax = Integer.MIN_VALUE;
 			int ymin = Integer.MAX_VALUE;
-            ChunkSection[] sections = chunk.getSectionArray();
+            LevelChunkSection[] sections = chunk.getSections();
             for (int i = 0; i < sections.length; i++) {
-                if ((sections[i] != null) && (!sections[i].isEmpty())) {
-					int sy = chunk.getBottomY() + i * ChunkSection.field_31407 /* Mojmap: SECTION_HEIGHT */;
+                if ((sections[i] != null) && (!sections[i].hasOnlyAir())) {
+					int sy = chunk.getMinY() + i * LevelChunkSection.SECTION_HEIGHT /* Mojmap: SECTION_HEIGHT */;
 					if (sy < ymin) ymin = sy;
 					if ((sy+16) > ymax) ymax = sy + 16;
                 }
             }
             if (ymax != Integer.MIN_VALUE) {
                 mapManager.touchVolume(fw.getName(),
-                        chunkPos.getStartX(), ymin, chunkPos.getStartZ(),
-                        chunkPos.getEndX(), ymax, chunkPos.getEndZ(),
+                        chunkPos.getMinBlockX(), ymin, chunkPos.getMinBlockZ(),
+                        chunkPos.getMaxBlockX(), ymax, chunkPos.getMaxBlockZ(),
                         "chunkgenerate");
                 //Log.info("New generated chunk detected at %s[%s]".formatted(fw.getName(), chunkPos.getStartPos()));
             }
         }
 
-        public void handleBlockEvent(World world, BlockPos pos) {
+        public void handleBlockEvent(Level world, BlockPos pos) {
             if (!core_enabled) return;
             if (!onblockchange) return;
-            if (!(world instanceof ServerWorld)) return;
+            if (!(world instanceof ServerLevel)) return;
 
             BlockUpdateRec r = new BlockUpdateRec();
             r.w = world;
@@ -697,11 +702,11 @@ public class DynmapPlugin {
         return worlds.get(name);
     }
 
-    FabricWorld getWorld(World w) {
+    FabricWorld getWorld(Level w) {
         return getWorld(w, true);
     }
 
-    private FabricWorld getWorld(World w, boolean add_if_not_found) {
+    private FabricWorld getWorld(Level w, boolean add_if_not_found) {
         if (last_world == w) {
             return last_fworld;
         }

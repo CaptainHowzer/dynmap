@@ -1,13 +1,14 @@
 package org.dynmap.fabric_26_1;
 
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.WorldProperties.SpawnPoint;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.world.Heightmap;
-import net.minecraft.world.LightType;
-import net.minecraft.world.World;
-import net.minecraft.world.border.WorldBorder;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.storage.LevelData.RespawnData;
+import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.util.Mth;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.border.WorldBorder;
 import org.dynmap.DynmapChunk;
 import org.dynmap.DynmapLocation;
 import org.dynmap.DynmapWorld;
@@ -21,7 +22,7 @@ public class FabricWorld extends DynmapWorld {
     public static final String SAVED_WORLDS_FILE = "fabricworlds.yml";
 
     private final DynmapPlugin plugin;
-    private World world;
+    private Level world;
     private final boolean skylight;
     private final boolean isnether;
     private final boolean istheend;
@@ -37,30 +38,30 @@ public class FabricWorld extends DynmapWorld {
         maxWorldHeight = h;
     }
 
-    public static String getWorldName(DynmapPlugin plugin, World w) {
-        RegistryKey<World> rk = w.getRegistryKey();
-        if (rk == World.OVERWORLD) {    // Overworld?
-            return w.getServer().getSaveProperties().getLevelName();
-        } else if (rk == World.END) {
+    public static String getWorldName(DynmapPlugin plugin, Level w) {
+        ResourceKey<Level> rk = w.dimension();
+        if (rk == Level.OVERWORLD) {    // Overworld?
+            return w.getServer().getWorldData().getLevelName();
+        } else if (rk == Level.END) {
             return "DIM1";
-        } else if (rk == World.NETHER) {
+        } else if (rk == Level.NETHER) {
             return "DIM-1";
         } else {
-            return rk.getValue().getNamespace() + "_" + rk.getValue().getPath();
+            return rk.identifier().getNamespace() + "_" + rk.identifier().getPath();
         }
     }
     
-    public void updateWorld(World w) {
-    	this.updateWorldHeights(w.getHeight(), w.getBottomY(), w.getSeaLevel());
+    public void updateWorld(Level w) {
+    	this.updateWorldHeights(w.getHeight(), w.getMinY(), w.getSeaLevel());
     }
 
-    public FabricWorld(DynmapPlugin plugin, World w) {
+    public FabricWorld(DynmapPlugin plugin, Level w) {
         this(plugin, getWorldName(plugin, w), w.getHeight(),
                 w.getSeaLevel(),
-                w.getRegistryKey() == World.NETHER,
-                w.getRegistryKey() == World.END,
-                w.getRegistryKey().getValue().getPath(),
-                w.getBottomY());
+                w.dimension() == Level.NETHER,
+                w.dimension() == Level.END,
+                w.dimension().identifier().getPath(),
+                w.getMinY());
         setWorldLoaded(w);
     }
 
@@ -97,7 +98,7 @@ public class FabricWorld extends DynmapWorld {
     @Override
     public DynmapLocation getSpawnLocation() {
         if (world != null) {
-            BlockPos spawnPos = world.getLevelProperties().getSpawnPoint().getPos().toImmutable();
+            BlockPos spawnPos = world.getLevelData().getRespawnData().pos().immutable();
             spawnloc.x = spawnPos.getX();
             spawnloc.y = spawnPos.getY();
             spawnloc.z = spawnPos.getZ();
@@ -110,7 +111,7 @@ public class FabricWorld extends DynmapWorld {
     @Override
     public long getTime() {
         if (world != null)
-            return world.getTimeOfDay();
+            return world.getDayTime();
         else
             return -1;
     }
@@ -147,7 +148,7 @@ public class FabricWorld extends DynmapWorld {
     }
 
     /* Set world to loaded */
-    public void setWorldLoaded(World w) {
+    public void setWorldLoaded(Level w) {
         world = w;
         this.sealevel = w.getSeaLevel();   // Read actual current sealevel from world
         // Update lighting table
@@ -158,7 +159,7 @@ public class FabricWorld extends DynmapWorld {
             // updates the curve; in that case we should reflect the changes.
             float value = (float) lightLevel / 15.0f;
             float brightness = value / (4.0f - 3.0f * value);
-            this.setBrightnessTableEntry(lightLevel, MathHelper.lerp(w.getDimension().ambientLight(), brightness, 1.0F));
+            this.setBrightnessTableEntry(lightLevel, Mth.lerp(w.dimensionType().ambientLight(), brightness, 1.0F));
         }
     }
 
@@ -166,7 +167,7 @@ public class FabricWorld extends DynmapWorld {
     @Override
     public int getLightLevel(int x, int y, int z) {
         if (world != null)
-            return world.getLightLevel(new BlockPos(x, y, z));
+            return world.getMaxLocalRawBrightness(new BlockPos(x, y, z));
         else
             return -1;
     }
@@ -175,7 +176,7 @@ public class FabricWorld extends DynmapWorld {
     @Override
     public int getHighestBlockYAt(int x, int z) {
         if (world != null) {
-            return world.getChunk(x >> 4, z >> 4).getHeightmap(Heightmap.Type.MOTION_BLOCKING).get(x & 15, z & 15);
+            return world.getChunk(x >> 4, z >> 4).getOrCreateHeightmapUnprimed(Heightmap.Types.MOTION_BLOCKING).getFirstAvailable(x & 15, z & 15);
         } else
             return -1;
     }
@@ -190,7 +191,7 @@ public class FabricWorld extends DynmapWorld {
     @Override
     public int getSkyLightLevel(int x, int y, int z) {
         if (world != null) {
-            return world.getLightLevel(LightType.SKY, new BlockPos(x, y, z));
+            return world.getMaxLocalRawBrightness(new BlockPos(x, y, z), 0); // 0 = sky light??
         } else
             return -1;
     }
@@ -216,7 +217,7 @@ public class FabricWorld extends DynmapWorld {
         return null;
     }
 
-    public World getWorld() {
+    public Level getWorld() {
         return world;
     }
 
@@ -226,10 +227,10 @@ public class FabricWorld extends DynmapWorld {
             WorldBorder wb = world.getWorldBorder();
             if ((wb != null) && (wb.getSize() < 5.9E7)) {
                 Polygon p = new Polygon();
-                p.addVertex(wb.getBoundWest(), wb.getBoundNorth());
-                p.addVertex(wb.getBoundWest(), wb.getBoundSouth());
-                p.addVertex(wb.getBoundEast(), wb.getBoundSouth());
-                p.addVertex(wb.getBoundEast(), wb.getBoundNorth());
+                p.addVertex(wb.getMinX(), wb.getMinZ());
+                p.addVertex(wb.getMinX(), wb.getMaxZ());
+                p.addVertex(wb.getMaxX(), wb.getMaxZ());
+                p.addVertex(wb.getMaxX(), wb.getMinZ());
                 return p;
             }
         }

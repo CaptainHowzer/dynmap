@@ -1,9 +1,11 @@
 package org.dynmap.fabric_26_1.event;
 
+import org.dynmap.fabric_26_1.event.CustomServerChunkEvents.ChunkGenerate;
+
 import net.fabricmc.fabric.api.event.Event;
 import net.fabricmc.fabric.api.event.EventFactory;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.world.chunk.Chunk;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.chunk.ChunkAccess;
 
 public class CustomServerChunkEvents {
     public static Event<ChunkGenerate> CHUNK_GENERATE = EventFactory.createArrayBacked(ChunkGenerate.class,
@@ -16,6 +18,6 @@ public class CustomServerChunkEvents {
 
     @FunctionalInterface
     public interface ChunkGenerate {
-        void onChunkGenerate(ServerWorld world, Chunk chunk);
+        void onChunkGenerate(ServerLevel world, ChunkAccess chunk);
     }
 }

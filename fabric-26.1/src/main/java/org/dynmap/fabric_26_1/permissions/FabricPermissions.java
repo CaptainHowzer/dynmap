@@ -1,7 +1,7 @@
 package org.dynmap.fabric_26_1.permissions;
 
 import me.lucko.fabric.api.permissions.v0.Permissions;
-import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.world.entity.player.Player;
 import org.dynmap.Log;
 import org.dynmap.fabric_26_1.DynmapPlugin;
 import org.dynmap.json.simple.parser.JSONParser;
@@ -28,15 +28,16 @@ public class FabricPermissions implements PermissionProvider {
     }
 
     @Override
-    public boolean has(PlayerEntity player, String permission) {
+    public boolean has(Player player, String permission) {
         if (player == null) return false;
         String name = player.getName().getString().toLowerCase();
         if (DynmapPlugin.plugin.isOp(name)) return true;
-        return Permissions.check(player, permissionKey(permission));
+        // return Permissions.check(player, permissionKey(permission));
+        return true; // TODO: implement proper permission checks (waiting on fabric-permissions-api update)
     }
 
     @Override
-    public boolean hasPermissionNode(PlayerEntity player, String permission) {
+    public boolean hasPermissionNode(Player player, String permission) {
         if (player != null) {
             String name = player.getName().getString().toLowerCase();
             return DynmapPlugin.plugin.isOp(name);

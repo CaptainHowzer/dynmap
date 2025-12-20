@@ -1,21 +1,21 @@
 package org.dynmap.fabric_26_1;
 
 import net.minecraft.nbt.*;
-import net.minecraft.server.world.ServerChunkLoadingManager;
-import net.minecraft.server.world.ServerChunkManager;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.collection.PackedIntegerArray;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.WordPackedArray;
-import net.minecraft.world.World;
-import net.minecraft.world.biome.Biome;
-import net.minecraft.world.biome.BiomeEffects;
-import net.minecraft.client.color.world.BiomeColors;
-import net.minecraft.world.chunk.ChunkManager;
-import net.minecraft.world.chunk.ChunkStatus;
-import net.minecraft.world.chunk.SerializedChunk;
-import org.dynmap.fabric_26_1.access.BiomeEffectsExt;
+import net.minecraft.server.level.ChunkMap;
+import net.minecraft.server.level.ServerChunkCache;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.SimpleBitStorage;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.util.Mth;
+import net.minecraft.util.datafix.PackedBitStorage;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.BiomeSpecialEffects;
+import net.minecraft.client.renderer.BiomeColors;
+import net.minecraft.world.level.chunk.ChunkSource;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.chunk.storage.SerializableChunkData;
+import org.dynmap.fabric_26_1.access.BiomeSpecialEffectsExt;
 import org.dynmap.DynmapChunk;
 import org.dynmap.DynmapCore;
 import org.dynmap.DynmapWorld;
@@ -36,8 +36,8 @@ import java.util.*;
  * Container for managing chunks - dependent upon using chunk snapshots, since rendering is off server thread
  */
 public class FabricMapChunkCache extends GenericMapChunkCache {
-    private World w;
-    private ServerChunkManager cps;
+    private Level w;
+    private ServerChunkCache cps;
 
     /**
      * Construct empty cache
@@ -49,11 +49,11 @@ public class FabricMapChunkCache extends GenericMapChunkCache {
     public void setChunks(FabricWorld dw, List<DynmapChunk> chunks) {
         this.w = dw.getWorld();
         if (dw.isLoaded()) {
-            /* Check if world's provider is ServerChunkManager */
-            ChunkManager cp = this.w.getChunkManager();
+            /* Check if world's provider is ServerChunkCache */
+            ChunkSource cp = this.w.getChunkSource();
 
-            if (cp instanceof ServerChunkManager) {
-                cps = (ServerChunkManager) cp;
+            if (cp instanceof ServerChunkCache) {
+                cps = (ServerChunkCache) cp;
             } else {
                 Log.severe("Error: world " + dw.getName() + " has unsupported chunk provider");
             }
@@ -64,11 +64,11 @@ public class FabricMapChunkCache extends GenericMapChunkCache {
 	// Load generic chunk from existing and already loaded chunk
 	protected GenericChunk getLoadedChunk(DynmapChunk chunk) {
 		GenericChunk gc = null;
-        if (cps.isChunkLoaded(chunk.x, chunk.z)) {
-            NbtCompound nbt = null;
+        if (cps.hasChunk(chunk.x, chunk.z)) {
+            CompoundTag nbt = null;
             try {
-                SerializedChunk sc = SerializedChunk.fromChunk((ServerWorld) w, cps.getWorldChunk(chunk.x, chunk.z, false));
-                nbt = sc.serialize();
+                SerializableChunkData sc = SerializableChunkData.copyOf((ServerLevel) w, cps.getChunkNow(chunk.x, chunk.z));
+                nbt = sc.write();
             } catch (NullPointerException e) {
                 // TODO: find out why this is happening and why it only seems to happen since 1.16.2
                 Log.severe("ChunkSerializer.serialize threw a NullPointerException", e);
@@ -80,13 +80,13 @@ public class FabricMapChunkCache extends GenericMapChunkCache {
 		return gc;
 	}
 
-    private NbtCompound readChunk(int x, int z) {
+    private CompoundTag readChunk(int x, int z) {
         try {
-            ServerChunkLoadingManager acl = cps.chunkLoadingManager;
+            ChunkMap acl = cps.chunkMap;
 
             ChunkPos coord = new ChunkPos(x, z);
             // Async chunk reading is synchronized here. Perhaps we can do async and improve performance?
-            return acl.getNbt(coord).join().orElse(null);
+            return acl.read(coord).join().orElse(null);
         } catch (Exception exc) {
             Log.severe(String.format("Error reading chunk: %s,%d,%d", dw.getName(), x, z), exc);
             return null;
@@ -96,7 +96,7 @@ public class FabricMapChunkCache extends GenericMapChunkCache {
 	// Load generic chunk from unloaded chunk
 	protected GenericChunk loadChunk(DynmapChunk chunk) {
 		GenericChunk gc = null;
-        NbtCompound nbt = readChunk(chunk.x, chunk.z);
+        CompoundTag nbt = readChunk(chunk.x, chunk.z);
 		// If read was good
 		if (nbt != null) {
 			gc = parseChunkFromNBT(new NBT.NBTCompound(nbt));
@@ -107,28 +107,28 @@ public class FabricMapChunkCache extends GenericMapChunkCache {
     @Override
     public int getFoliageColor(BiomeMap bm, int[] colormap, int x, int z) {
         return bm.<Biome>getBiomeObject()
-                .map(Biome::getEffects)
-                .map(effects -> ((BiomeEffectsExt)(Object)effects)
-                        .dynmap$getFoliageColor()
+                .map(Biome::getSpecialEffects)
+                .map(effects -> ((BiomeSpecialEffectsExt)(Object)effects)
+                        .dynmap$getFoliageColorOverride()
                         .orElse(colormap[bm.biomeLookup()]))
                 .orElse(colormap[bm.biomeLookup()]);
     }
 
     @Override
     public int getGrassColor(BiomeMap bm, int[] colormap, int x, int z) {
-        BiomeEffects effects = bm.<Biome>getBiomeObject()
-                                .map(Biome::getEffects)
+        BiomeSpecialEffects effects = bm.<Biome>getBiomeObject()
+                                .map(Biome::getSpecialEffects)
                                 .orElse(null);
 
         if (effects == null) return colormap[bm.biomeLookup()];
 
-        BiomeEffectsExt ext = (BiomeEffectsExt) (Object) effects;
+        BiomeSpecialEffectsExt ext = (BiomeSpecialEffectsExt) (Object) effects;
 
-        int baseColor = ext.dynmap$getGrassColor()
+        int baseColor = ext.dynmap$getGrassColorOverride()
                         .orElse(colormap[bm.biomeLookup()]);
 
-        BiomeEffects.GrassColorModifier modifier = ext.dynmap$getGrassColorModifier();
-        if (modifier != null)  return modifier.getModifiedGrassColor((double)x, (double)z, baseColor);
+        BiomeSpecialEffects.GrassColorModifier modifier = ext.dynmap$getGrassColorModifier();
+        if (modifier != null)  return modifier.modifyColor((double)x, (double)z, baseColor);
 
         return baseColor;
     }

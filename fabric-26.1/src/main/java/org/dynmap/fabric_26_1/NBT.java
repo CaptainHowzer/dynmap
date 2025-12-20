@@ -5,21 +5,21 @@ import org.dynmap.common.chunk.GenericNBTCompound;
 import org.dynmap.common.chunk.GenericNBTList;
 
 import java.util.Set;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.util.collection.PackedIntegerArray;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.util.SimpleBitStorage;
 
 public class NBT {
 
 	public static class NBTCompound implements GenericNBTCompound {
-		private final NbtCompound obj;
-		public NBTCompound(NbtCompound t) {
+		private final CompoundTag obj;
+		public NBTCompound(CompoundTag t) {
 			this.obj = t;
 		}
 		@Override
 		public Set<String> getAllKeys() {
-			return obj.getKeys();
+			return obj.keySet();
 		}
 		@Override
 		public boolean contains(String s) {
@@ -28,10 +28,10 @@ public class NBT {
 		@Override
 		public boolean contains(String s, int i) {
 			// Like contains, but with an extra constraint on type
-			NbtElement base = obj.get(s);
+			Tag base = obj.get(s);
 			if (base == null)
 				return false;
-			int type = base.getType();
+			int type = base.getId();
 			if (type == i)
 				return true;
 			else if (i != TAG_ANY_NUMERIC)
@@ -41,31 +41,31 @@ public class NBT {
 		}
 		@Override
 		public byte getByte(String s) {
-			return obj.getByte(s, (byte)0);
+			return obj.getByteOr(s, (byte)0);
 		}
 		@Override
 		public short getShort(String s) {
-			return obj.getShort(s, (short)0);
+			return obj.getShortOr(s, (short)0);
 		}
 		@Override
 		public int getInt(String s) {
-			return obj.getInt(s, (int)0);
+			return obj.getIntOr(s, (int)0);
 		}
 		@Override
 		public long getLong(String s) {
-			return obj.getLong(s, (long)0);
+			return obj.getLongOr(s, (long)0);
 		}
 		@Override
 		public float getFloat(String s) {
-			return obj.getFloat(s, (float)0);
+			return obj.getFloatOr(s, (float)0);
 		}
 		@Override
 		public double getDouble(String s) {
-			return obj.getDouble(s, (double)0);
+			return obj.getDoubleOr(s, (double)0);
 		}
 		@Override
 		public String getString(String s) {
-			return obj.getString(s, "");
+			return obj.getStringOr(s, "");
 		}
 		@Override
 		public byte[] getByteArray(String s) {
@@ -90,7 +90,7 @@ public class NBT {
 		}
 		@Override
 		public boolean getBoolean(String s) {
-			return obj.getBoolean(s, false);
+			return obj.getBooleanOr(s, false);
 		}
 		@Override
 		public String getAsString(String s) {
@@ -105,8 +105,8 @@ public class NBT {
 		}
 	}
 	public static class NBTList implements GenericNBTList {
-		private final NbtList obj;
-		public NBTList(NbtList t) {
+		private final ListTag obj;
+		public NBTList(ListTag t) {
 			obj = t;
 		}
 		@Override
@@ -115,7 +115,7 @@ public class NBT {
 		}
 		@Override
 		public String getString(int idx) {
-			return obj.getString(idx, "");
+			return obj.getStringOr(idx, "");
 		}
 		@Override
 		public GenericNBTCompound getCompound(int idx) {
@@ -126,9 +126,9 @@ public class NBT {
 		}
 	}
 	public static class OurBitStorage implements GenericBitStorage {
-		private final PackedIntegerArray bs;
+		private final SimpleBitStorage bs;
 		public OurBitStorage(int bits, int count, long[] data) {
-			bs = new PackedIntegerArray(bits, count, data);
+			bs = new SimpleBitStorage(bits, count, data);
 		}
 		@Override
 		public int get(int idx) {

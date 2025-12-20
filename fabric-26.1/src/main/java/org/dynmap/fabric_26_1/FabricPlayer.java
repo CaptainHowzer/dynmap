@@ -7,17 +7,17 @@ import com.google.gson.JsonParseException;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 
-import net.minecraft.network.packet.s2c.play.SubtitleS2CPacket;
-import net.minecraft.network.packet.s2c.play.TitleFadeS2CPacket;
-import net.minecraft.network.packet.s2c.play.TitleS2CPacket;
-import net.minecraft.server.network.ServerPlayNetworkHandler;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
+import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket;
+import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
+import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.Component;
 import net.minecraft.util.Util;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
+import net.minecraft.world.level.Level;
 import org.dynmap.DynmapLocation;
 import org.dynmap.common.DynmapPlayer;
+import org.w3c.dom.Text;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -32,16 +32,16 @@ public class FabricPlayer extends FabricCommandSender implements DynmapPlayer {
     private static final Gson GSON = new GsonBuilder().create();
     private final DynmapPlugin plugin;
     // FIXME: Proper setter
-    ServerPlayerEntity player;
+    ServerPlayer player;
     private final String skinurl;
     private final UUID uuid;
 
-    public FabricPlayer(DynmapPlugin plugin, ServerPlayerEntity player) {
+    public FabricPlayer(DynmapPlugin plugin, ServerPlayer player) {
         this.plugin = plugin;
         this.player = player;
         String url = null;
         if (this.player != null) {
-            uuid = this.player.getUuid();
+            uuid = this.player.getUUID();
             GameProfile prof = this.player.getGameProfile();
             if (prof != null) {
                 Property textureProperty = Iterables.getFirst(prof.properties().get("textures"), null);
@@ -100,7 +100,7 @@ public class FabricPlayer extends FabricCommandSender implements DynmapPlayer {
         }
 
         // Vec3d pos = player.movement;
-        return FabricAdapter.toDynmapLocation(plugin, player.getEntityWorld(), player.getX(), player.getY(), player.getZ());
+        return FabricAdapter.toDynmapLocation(plugin, player.level(), player.getCamera().getX(), player.getCamera().getY(), player.getCamera().getZ());
     }
 
     @Override
@@ -109,7 +109,7 @@ public class FabricPlayer extends FabricCommandSender implements DynmapPlayer {
             return null;
         }
 
-        World world = player.getEntityWorld();
+        Level world = player.level();
         if (world != null) {
             return plugin.getWorld(world).getName();
         }
@@ -120,9 +120,9 @@ public class FabricPlayer extends FabricCommandSender implements DynmapPlayer {
     @Override
     public InetSocketAddress getAddress() {
         if (player != null) {
-            ServerPlayNetworkHandler networkHandler = player.networkHandler;
+            ServerGamePacketListenerImpl networkHandler = player.connection;
             if (networkHandler != null) {
-                SocketAddress sa = networkHandler.getConnectionAddress();
+                SocketAddress sa = networkHandler.getRemoteAddress();
                 if (sa instanceof InetSocketAddress) {
                     return (InetSocketAddress) sa;
                 }
@@ -134,7 +134,7 @@ public class FabricPlayer extends FabricCommandSender implements DynmapPlayer {
     @Override
     public boolean isSneaking() {
         if (player != null) {
-            return player.isSneaking();
+            return player.getCamera().isShiftKeyDown();
         }
 
         return false;
@@ -154,7 +154,7 @@ public class FabricPlayer extends FabricCommandSender implements DynmapPlayer {
     @Override
     public int getArmorPoints() {
         if (player != null) {
-            return player.getArmor();
+            return player.getArmorValue();
         } else {
             return 0;
         }
@@ -189,8 +189,8 @@ public class FabricPlayer extends FabricCommandSender implements DynmapPlayer {
 
     @Override
     public void sendMessage(String msg) {
-        Text ichatcomponent = Text.literal(msg);
-        player.sendMessage(ichatcomponent);
+        Component ichatcomponent = Component.literal(msg);
+        player.displayClientMessage(ichatcomponent, false);
     }
 
     @Override
@@ -243,17 +243,17 @@ public class FabricPlayer extends FabricCommandSender implements DynmapPlayer {
     @Override
     public void sendTitleText(String title, String subtitle, int fadeInTicks, int stayTicks, int fadeOutTicks) {
         if (player != null) {
-            ServerPlayerEntity player = this.player;
-            TitleFadeS2CPacket times = new TitleFadeS2CPacket(fadeInTicks, stayTicks, fadeOutTicks);
-            player.networkHandler.sendPacket(times);
+            ServerPlayer player = this.player;
+            ClientboundSetTitlesAnimationPacket times = new ClientboundSetTitlesAnimationPacket(fadeInTicks, stayTicks, fadeOutTicks);
+            player.connection.send(times);
             if (title != null) {
-                TitleS2CPacket titlepkt = new TitleS2CPacket(Text.literal(title));
-                player.networkHandler.sendPacket(titlepkt);
+                ClientboundSetTitleTextPacket titlepkt = new ClientboundSetTitleTextPacket(Component.literal(title));
+                player.connection.send(titlepkt);
             }
 
             if (subtitle != null) {
-            	SubtitleS2CPacket subtitlepkt = new SubtitleS2CPacket(Text.literal(subtitle));
-                player.networkHandler.sendPacket(subtitlepkt);
+            	ClientboundSetSubtitleTextPacket subtitlepkt = new ClientboundSetSubtitleTextPacket(Component.literal(subtitle));
+                player.connection.send(subtitlepkt);
             }
         }
     }

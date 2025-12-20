@@ -1,8 +1,8 @@
 package org.dynmap.fabric_26_1.mixin;
 
-import net.minecraft.block.BlockState;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.chunk.ProtoChunk;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.chunk.ProtoChunk;
 
 import org.dynmap.fabric_26_1.access.ProtoChunkAccessor;
 import org.spongepowered.asm.mixin.Mixin;
@@ -18,7 +18,7 @@ public class ProtoChunkMixin implements ProtoChunkAccessor {
             method = "setBlockState",
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/world/chunk/ChunkSection;setBlockState(IIILnet/minecraft/block/BlockState;)Lnet/minecraft/block/BlockState;"
+                    target = "Lnet/minecraft/world/level/chunk/LevelChunkSection;setBlockState(IIILnet/minecraft/world/level/block/state/BlockState;)Lnet/minecraft/world/level/block/state/BlockState;"
             )
     )
     public void setBlockState(BlockPos pos, BlockState state, int flags, CallbackInfoReturnable<BlockState> info) {
