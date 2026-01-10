@@ -500,8 +500,9 @@ public class FabricServer extends DynmapServerInterface {
 
             plugin.core.listenerManager.processChatEvent(DynmapListenerManager.EventType.PLAYER_CHAT, dp, cm.message);
         }
-        // Check for generated chunks
+        // Check for generated chunks (periodic recheck of recently generated volumes)
         if ((cur_tick % 20) == 0) {
+            plugin.tickRecheckChunks();
         }
     }
 

@@ -116,6 +116,52 @@ public class DynmapPlugin {
 
     ConcurrentLinkedQueue<BlockUpdateRec> blockupdatequeue = new ConcurrentLinkedQueue<BlockUpdateRec>();
 
+    static class PendingChunkVolume {
+        final String world;
+        final int minx, miny, minz;
+        final int maxx, maxy, maxz;
+        int delayTicks;
+
+        PendingChunkVolume(String world,
+                           int minx, int miny, int minz,
+                           int maxx, int maxy, int maxz,
+                           int delayTicks) {
+            this.world = world;
+            this.minx = minx;
+            this.miny = miny;
+            this.minz = minz;
+            this.maxx = maxx;
+            this.maxy = maxy;
+            this.maxz = maxz;
+            this.delayTicks = delayTicks;
+        }
+    }
+
+    final Queue<PendingChunkVolume> pendingChunkRechecks = new ConcurrentLinkedQueue<PendingChunkVolume>();
+
+    void tickRecheckChunks() {
+        if (pendingChunkRechecks.isEmpty() || mapManager == null) {
+            return;
+        }
+        for (Iterator<PendingChunkVolume> it = pendingChunkRechecks.iterator(); it.hasNext(); ) {
+            PendingChunkVolume pc = it.next();
+            pc.delayTicks--;
+            if (pc.delayTicks <= 0) {
+                Log.verboseinfo(String.format(
+                        "[FABRIC][chunkgenerate-recheck] re-touch world=%s x=[%d..%d] y=[%d..%d] z=[%d..%d]",
+                        pc.world, pc.minx, pc.maxx, pc.miny, pc.maxy, pc.minz, pc.maxz
+                ));
+                mapManager.touchVolume(
+                        pc.world,
+                        pc.minx, pc.miny, pc.minz,
+                        pc.maxx, pc.maxy, pc.maxz,
+                        "chunkgenerate-recheck"
+                );
+                it.remove();
+            }
+        }
+    }
+
     public static DynmapBlockState[] stateByID;
 
     /**
@@ -628,25 +674,49 @@ public class DynmapPlugin {
             if (!onchunkgenerate) return;
 
             FabricWorld fw = getWorld(world, false);
+            if (fw == null) return;
+
             ChunkPos chunkPos = chunk.getPos();
 
-			int ymax = Integer.MIN_VALUE;
-			int ymin = Integer.MAX_VALUE;
+            int ymax = Integer.MIN_VALUE;
+            int ymin = Integer.MAX_VALUE;
             ChunkSection[] sections = chunk.getSectionArray();
             for (int i = 0; i < sections.length; i++) {
                 if ((sections[i] != null) && (!sections[i].isEmpty())) {
-					int sy = chunk.getBottomY() + i * ChunkSection.field_31407 /* Mojmap: SECTION_HEIGHT */;
-					if (sy < ymin) ymin = sy;
-					if ((sy+16) > ymax) ymax = sy + 16;
+                    int sy = chunk.getBottomY() + i * ChunkSection.field_31407 /* Mojmap: SECTION_HEIGHT */;
+                    if (sy < ymin) ymin = sy;
+                    if ((sy + 16) > ymax) ymax = sy + 16;
                 }
             }
-            if (ymax != Integer.MIN_VALUE) {
-                mapManager.touchVolume(fw.getName(),
-                        chunkPos.getStartX(), ymin, chunkPos.getStartZ(),
-                        chunkPos.getEndX(), ymax, chunkPos.getEndZ(),
-                        "chunkgenerate");
-                //Log.info("New generated chunk detected at %s[%s]".formatted(fw.getName(), chunkPos.getStartPos()));
+            if (ymax == Integer.MIN_VALUE) {
+                Log.verboseinfo("Generated chunk at %s[%s] is empty".formatted(fw.getName(), chunkPos.getStartPos()));
+                return;
             }
+
+            if (ymin > ymax) {
+                ymin = ymax;
+            }
+
+            int startX = chunkPos.getStartX();
+            int endX   = chunkPos.getEndX();
+            int startZ = chunkPos.getStartZ();
+            int endZ   = chunkPos.getEndZ();
+
+            mapManager.touchVolume(
+                    fw.getName(),
+                    startX, ymin, startZ,
+                    endX,   ymax, endZ,
+                    "chunkgenerate"
+            );
+            Log.verboseinfo("New generated chunk detected at %s[%s]".formatted(fw.getName(), chunkPos.getStartPos()));
+
+            int delayTicks = 20 * 10; // ~10 seconds at 20 TPS
+            pendingChunkRechecks.add(new PendingChunkVolume(
+                    fw.getName(),
+                    startX, ymin, startZ,
+                    endX,   ymax, endZ,
+                    delayTicks
+            ));
         }
 
         public void handleBlockEvent(World world, BlockPos pos) {
