@@ -1,18 +1,18 @@
 package org.dynmap.fabric_26_1.mixin;
 
-import net.minecraft.block.BlockState;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.SignBlockEntity;
-import net.minecraft.network.message.FilterMask;
-import net.minecraft.network.message.SignedMessage;
-import net.minecraft.network.packet.c2s.play.UpdateSignC2SPacket;
-import net.minecraft.server.filter.FilteredMessage;
-import net.minecraft.server.filter.TextStream;
-import net.minecraft.server.network.ServerPlayNetworkHandler;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.SignBlockEntity;
+import net.minecraft.network.chat.FilterMask;
+import net.minecraft.network.chat.PlayerChatMessage;
+import net.minecraft.network.protocol.game.ServerboundSignUpdatePacket;
+import net.minecraft.server.network.FilteredText;
+import net.minecraft.server.network.TextFilter;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.network.chat.Component;
+import net.minecraft.core.BlockPos;
 
 import java.util.Arrays;
 import java.util.List;
@@ -26,10 +26,10 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
 
-@Mixin(ServerPlayNetworkHandler.class)
+@Mixin(ServerGamePacketListenerImpl.class)
 public abstract class ServerPlayNetworkHandlerMixin {
     @Shadow
-    public ServerPlayerEntity player;
+    public ServerPlayer player;
 
     @Inject(
             method = "handleDecoratedMessage",
@@ -37,22 +37,22 @@ public abstract class ServerPlayNetworkHandlerMixin {
                     value = "HEAD"
             )
     )
-    public void onGameMessage(SignedMessage signedMessage, CallbackInfo ci) {
-        ServerChatEvents.EVENT.invoker().onChatMessage(player, signedMessage.getContent().getString());
+    public void onGameMessage(PlayerChatMessage signedMessage, CallbackInfo ci) {
+        ServerChatEvents.EVENT.invoker().onChatMessage(player, signedMessage.decoratedContent().getString());
     }
 
     @Inject(
             method = "onSignUpdate",
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/block/entity/SignBlockEntity;tryChangeText(Lnet/minecraft/entity/player/PlayerEntity;ZLjava/util/List;)V",
+                    target = "Lnet/minecraft/world/level/block/entity/SignBlockEntity;tryChangeText(Lnet/minecraft/server/level/ServerPlayer;ZLjava/util/List;)V",
                     shift = At.Shift.BEFORE
             ),
             locals = LocalCapture.CAPTURE_FAILHARD,
             cancellable = true
     )
-    public void onSignUpdate(UpdateSignC2SPacket packet, List<FilteredMessage> signText, CallbackInfo ci,
-                             ServerWorld serverWorld, BlockPos blockPos, BlockEntity blockEntity, SignBlockEntity signBlockEntity)
+    public void onSignUpdate(ServerboundSignUpdatePacket packet, List<FilteredText> signText, CallbackInfo ci,
+                             ServerLevel serverWorld, BlockPos blockPos, BlockEntity blockEntity, SignBlockEntity signBlockEntity)
     {
         // Pull the raw text from the input.
         String[] rawTexts = new String[4];
@@ -60,13 +60,13 @@ public abstract class ServerPlayNetworkHandlerMixin {
             rawTexts[i] = signText.get(i).raw();
 
         // Fire the event.
-        BlockEvents.SIGN_CHANGE_EVENT.invoker().onSignChange(serverWorld, blockPos, rawTexts, player, packet.isFront());
+        BlockEvents.SIGN_CHANGE_EVENT.invoker().onSignChange(serverWorld, blockPos, rawTexts, player, packet.isFrontText());
 
         // Rebuild the signText list with the new values.
-        List<FilteredMessage> newSignText = Arrays.stream(rawTexts).map((raw) -> new FilteredMessage(raw, FilterMask.PASS_THROUGH)).toList();
+        List<FilteredText> newSignText = Arrays.stream(rawTexts).map((raw) -> new FilteredText(raw, FilterMask.PASS_THROUGH)).toList();
 
         // Execute the setting of the texts with the edited values.
-        signBlockEntity.tryChangeText(this.player, packet.isFront(), newSignText);
+        signBlockEntity.updateSignText(this.player, packet.isFrontText(), newSignText);
 
         // Cancel the original tryChangeText() since we're calling it ourselves above.
         ci.cancel();

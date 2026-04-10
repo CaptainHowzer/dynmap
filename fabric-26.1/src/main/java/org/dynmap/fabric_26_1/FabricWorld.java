@@ -12,6 +12,7 @@ import net.minecraft.world.level.border.WorldBorder;
 import org.dynmap.DynmapChunk;
 import org.dynmap.DynmapLocation;
 import org.dynmap.DynmapWorld;
+import org.dynmap.fabric_26_1.FabricMapChunkCache;
 import org.dynmap.utils.MapChunkCache;
 import org.dynmap.utils.Polygon;
 
@@ -111,7 +112,7 @@ public class FabricWorld extends DynmapWorld {
     @Override
     public long getTime() {
         if (world != null)
-            return world.getDayTime();
+            return world.getOverworldClockTime();
         else
             return -1;
     }

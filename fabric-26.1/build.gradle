@@ -8,12 +8,11 @@ eclipse {
     }
 }
 
-
 version = parent.version
 group = parent.group
 
 base {
-	archivesName = project.archives_base_name
+	archivesName = project.name
 }
 
 configurations {
@@ -32,19 +31,24 @@ repositories {
 }
 
 loom {
-	// accessWidenerPath = file("src/main/resources/dynmap.accesswidener")
+	splitEnvironmentSourceSets()
+
+	mods {
+		"modid" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+
 }
 
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    // mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
     compileOnly group: 'com.google.code.findbugs', name: 'jsr305', version: '3.0.2'
-
     shadow project(path: ':DynmapCore', configuration: 'shadow')
-	
-    compileOnly "me.lucko:fabric-permissions-api:0.6.0"
+    compileOnly "me.lucko:fabric-permissions-api:0.7.0"
     compileOnly 'net.luckperms:api:5.5'
 }
 
@@ -65,7 +69,7 @@ tasks.shadowJar {
         include(dependency(':DynmapCore'))
     }
 	relocate('org.dynmap', 'org.dynmap.fabric_26_1')
-    destinationDirectory = file('../target')
+    destinationDirectory = file('build/libs')
 }
 
 java {
@@ -79,7 +83,7 @@ java {
 }
 
 jar {
-    archiveFileName = "${base.archivesName.get()}-${project.version}-fabric-${project.minecraft_version}.jar"
+    archiveFileName = "${rootProject.eclipse.project.name}-${project.version}-fabric-${project.minecraft_version}.jar"
     destinationDirectory = file('../target')
     inputs.property "archivesName", base.archivesName.get()
     from "LICENSE"
@@ -91,24 +95,5 @@ jar {
 		def checksum = org.apache.commons.codec.digest.DigestUtils.sha256Hex(jarFile.newInputStream())
 		def checksumFile = new File(jarFile.parentFile, jarFile.name + ".sha256")
 		checksumFile.text = checksum
-	}
-}
-
-
-// configure the maven publication
-publishing {
-	publications {
-		create("mavenJava", MavenPublication) {
-			artifactId = project.archives_base_name
-			from components.java
-		}
-	}
-
-	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
-	repositories {
-		// Add repositories to publish to here.
-		// Notice: This block does NOT have the same function as the block in the top level.
-		// The repositories here will be used for publishing your artifact, not for
-		// retrieving dependencies.
 	}
 }

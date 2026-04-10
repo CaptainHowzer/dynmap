@@ -11,7 +11,7 @@ import net.minecraft.util.datafix.PackedBitStorage;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeSpecialEffects;
-import net.minecraft.client.renderer.BiomeColors;
+import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkSource;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.storage.SerializableChunkData;
@@ -67,7 +67,9 @@ public class FabricMapChunkCache extends GenericMapChunkCache {
         if (cps.hasChunk(chunk.x, chunk.z)) {
             CompoundTag nbt = null;
             try {
-                SerializableChunkData sc = SerializableChunkData.copyOf((ServerLevel) w, cps.getChunkNow(chunk.x, chunk.z));
+                ChunkAccess ca = cps.getChunkNow(chunk.x, chunk.z);
+                if (ca == null) return null;
+                SerializableChunkData sc = SerializableChunkData.copyOf((ServerLevel) w, ca);
                 nbt = sc.write();
             } catch (NullPointerException e) {
                 // TODO: find out why this is happening and why it only seems to happen since 1.16.2

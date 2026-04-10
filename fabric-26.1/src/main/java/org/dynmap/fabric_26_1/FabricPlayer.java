@@ -190,7 +190,7 @@ public class FabricPlayer extends FabricCommandSender implements DynmapPlayer {
     @Override
     public void sendMessage(String msg) {
         Component ichatcomponent = Component.literal(msg);
-        player.displayClientMessage(ichatcomponent, false);
+        player.sendSystemMessage(ichatcomponent, false);
     }
 
     @Override

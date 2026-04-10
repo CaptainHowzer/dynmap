@@ -1,6 +1,6 @@
 package org.dynmap.fabric_26_1.access;
 import java.util.Optional;
-import net.minecraft.world.biome.BiomeEffects;
+import net.minecraft.world.level.biome.BiomeSpecialEffects;
 import java.util.OptionalInt;
 
 public interface BiomeEffectsExt {
@@ -8,5 +8,5 @@ public interface BiomeEffectsExt {
     Optional<Integer> dynmap$getFoliageColor();
     Optional<Integer> dynmap$getDryFoliageColor();
     Optional<Integer> dynmap$getGrassColor();
-    BiomeEffects.GrassColorModifier dynmap$getGrassColorModifier();
+    BiomeSpecialEffects.GrassColorModifier dynmap$getGrassColorModifier();
 }

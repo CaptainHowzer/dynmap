@@ -1,6 +1,6 @@
 package org.dynmap.fabric_26_1.mixin;
 
-import net.minecraft.world.biome.BiomeEffects;
+import net.minecraft.world.level.biome.BiomeSpecialEffects;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -9,14 +9,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.dynmap.fabric_26_1.access.BiomeEffectsExt;
 import java.util.Optional;
 
-@Mixin(BiomeEffects.class)
+@Mixin(BiomeSpecialEffects.class)
 public class BiomeEffectsMixin implements BiomeEffectsExt {
 
     @Shadow private int waterColor;
     @Shadow private Optional<Integer> foliageColor;
     @Shadow private Optional<Integer> dryFoliageColor;
     @Shadow private Optional<Integer> grassColor;
-    @Shadow private BiomeEffects.GrassColorModifier grassColorModifier;
+    @Shadow private BiomeSpecialEffects.GrassColorModifier grassColorModifier;
 
     private int dynmap$waterColor;
 
@@ -25,7 +25,7 @@ public class BiomeEffectsMixin implements BiomeEffectsExt {
                         Optional<Integer> foliageColor,
                         Optional<Integer> dryFoliageColor,
                         Optional<Integer> grassColor,
-                        BiomeEffects.GrassColorModifier grassColorModifier,
+                        BiomeSpecialEffects.GrassColorModifier grassColorModifier,
                         CallbackInfo ci)
     {
         this.dynmap$waterColor = waterColor;
@@ -46,7 +46,7 @@ public class BiomeEffectsMixin implements BiomeEffectsExt {
     public Optional<Integer> dynmap$getGrassColor() { return grassColor; }
 
     @Override
-    public BiomeEffects.GrassColorModifier dynmap$getGrassColorModifier() {
+    public BiomeSpecialEffects.GrassColorModifier dynmap$getGrassColorModifier() {
         return grassColorModifier;
     }
 }

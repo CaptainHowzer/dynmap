@@ -20,15 +20,3 @@ project(":dynmap-api").projectDir = "$rootDir/dynmap-api" as File
 project(":DynmapCore").projectDir = "$rootDir/DynmapCore" as File
 project(":DynmapCoreAPI").projectDir = "$rootDir/DynmapCoreAPI" as File
 project(":fabric-26.1").projectDir = "$rootDir/fabric-26.1" as File
-
-// enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
-
-// dependencyResolutionManagement {
-// 	repositories {
-// 		maven {
-// 			name = 'Fabric'
-// 			url = 'https://maven.fabricmc.net/'
-// 		}
-// 		mavenCentral()
-// 	}
-// }

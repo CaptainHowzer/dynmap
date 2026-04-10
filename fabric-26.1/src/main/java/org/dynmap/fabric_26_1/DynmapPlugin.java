@@ -5,7 +5,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
 import net.minecraft.world.level.block.state.properties.Property;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.world.level.block.Block;
@@ -30,7 +30,6 @@ import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.client.renderer.BiomeColors;
 import org.dynmap.*;
 import org.dynmap.common.BiomeMap;
 import org.dynmap.common.DynmapCommandSender;
@@ -694,8 +693,8 @@ public class DynmapPlugin {
             BlockEvents.BLOCK_EVENT.register((world, pos) -> worldTracker.handleBlockEvent(world, pos));
         }
 
-        ServerWorldEvents.LOAD.register((server, world) -> worldTracker.handleWorldLoad(server, world));
-        ServerWorldEvents.UNLOAD.register((server, world) -> worldTracker.handleWorldUnload(server, world));
+        ServerLevelEvents.LOAD.register((server, world) -> worldTracker.handleWorldLoad(server, world));
+        ServerLevelEvents.UNLOAD.register((server, world) -> worldTracker.handleWorldUnload(server, world));
     }
 
     FabricWorld getWorldByName(String name) {
